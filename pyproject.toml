@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veri-build"
+version = "0.1.0"
+description = "Veri DSL spec verification pipeline: lint, fill TODOs via LLM, compile to WASM"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Veri-Build Contributors"},
+]
+
+[project.scripts]
+veri-build = "veri_build.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

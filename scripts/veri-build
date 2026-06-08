@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""veri-build — Formal verification pipeline for FCL specs.
+
+Usage:
+  veri-build lint spec.veri.md                     # Check interface (no LLM)
+  veri-build verify spec.veri.md                   # Full pipeline
+  veri-build verify spec.veri.md --child pi        # Use pi-coding-agent
+  veri-build verify spec.veri.md --target wasm     # Lint + fill + compile
+
+Documentation: https://github.com/devbali/veri-build
+"""
+
+import sys
+from pathlib import Path
+
+# Ensure package root is on sys.path (for pip install -e and direct use)
+_pkg_root = Path(__file__).resolve().parents[1] / "src"
+if str(_pkg_root) not in sys.path:
+    sys.path.insert(0, str(_pkg_root))
+
+from veri_build.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

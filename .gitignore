@@ -1,0 +1,29 @@
+
+build/
+# Build output
+dist/
+.docker/
+# Docker
+.DS_Store
+*.egg-info/
+# IDE
+.idea/
+# OS
+out/
+*.pyc
+__pycache__/
+*.pyo
+# Python
+*.so
+target/
+Thumbs.db
+.venv/
+venv/
+# Virtual env
+.vscode/
+*.wasm
+*.wasm.map
+*.zip
+
+# Test run artifacts
+tests/integration/results/
