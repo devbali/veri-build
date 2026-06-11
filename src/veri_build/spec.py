@@ -1,5 +1,5 @@
 """Spec — Read .veri.md files, extract Veri DSL blocks, merge into VeriDslProgram AST,
-convert to F* .fsti for interface checking, and .fst with stubs for TODO filling."""
+convert to F* .fst for interface checking, and .fst with stubs for TODO filling."""
 
 import re
 from dataclasses import dataclass, field
@@ -19,11 +19,13 @@ class ExtractedSpec:
     """Parsed .veri.md — the full content needed for the pipeline."""
     path: Path
     raw_text: str
-    veri_blocks: List[str]              # Raw Veri DSL text from each ```veri block
+    veri_blocks: List[str]              # Raw Veri DSL text from each ```veri block (before import resolution)
+    resolved_blocks: List[str]           # Blocks after import resolution (inlined type defs)
     program: VeriDslProgram                # Merged AST from all blocks
     module_name: str
     todo_function_names: List[str]     # Functions marked #TODO
     todo_indices: List[int]            # Which blocks contain TODOs
+    veri_version: Optional[str] = None  # VERI_VERSION from spec (e.g., '0.3.0')
 
 
 def extract_blocks(md_text: str) -> List[str]:
@@ -107,6 +109,72 @@ def _extract_module_name_from_blocks(blocks: List[str]) -> Optional[str]:
     return None
 
 
+def _resolve_imports(blocks: List[str], md_path: Path) -> List[str]:
+    """Resolve `import X` statements by inlining type definitions from X.veri.md.
+
+    For each `import X` line in a Veri DSL block, find the corresponding
+    X.veri.md file, extract its type declarations (class, type alias,
+    CONSTRAINT, and the FStar.Seq import), and insert them into the block.
+    This avoids F* cross-module dependencies in the lint step.
+    """
+    result = []
+    for block in blocks:
+        lines = block.split('\n')
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            m = re.match(r'^import\s+(\w+)$', stripped)
+            if not m:
+                new_lines.append(line)
+                continue
+
+            # Resolve X.veri.md relative to the importing spec's directory
+            imported_name = m.group(1)
+            # Try exact name first
+            import_path = md_path.parent / f'{imported_name}.veri.md'
+            if not import_path.exists():
+                # CamelCase → snake_case: DeadlineModel → deadline_model
+                snake = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', '_', imported_name).lower()
+                import_path = md_path.parent / f'{snake}.veri.md'
+            if not import_path.exists():
+                new_lines.append(f'# ERROR: imported spec "{imported_name}" not found at {import_path}')
+                continue
+
+            # Read the imported spec and extract only type declarations
+            import_text = import_path.read_text()
+            import_blocks = extract_blocks(import_text)
+            type_decls = []
+            for ib in import_blocks:
+                ib_lines = ib.split('\n')
+                filtered = []
+                for il in ib_lines:
+                    s = il.strip()
+                    # Keep: TARGET, import, class, type, CONSTRAINT
+                    if (s.startswith(('TARGET', 'class ', 'type ', 'CONSTRAINT '))
+                        or s.startswith('import ')
+                        or s.startswith('#')
+                        or s == ''):
+                        filtered.append(il)
+                    # Also keep indented field lines inside classes
+                    elif il.startswith((' ', '\t')):
+                        filtered.append(il)
+                    # Stop at def statements (functions)
+                    elif s.startswith('def '):
+                        break
+                if filtered:
+                    type_decls.extend(filtered)
+
+            if type_decls:
+                # Don't add a comment about the import — the agent prompt would try
+                # to resolve the file path, but the types are already inlined.
+                new_lines.extend(type_decls)
+            else:
+                new_lines.append(f'# {imported_name}.veri.md found but no type declarations extracted')
+
+        result.append('\n'.join(new_lines))
+    return result
+
+
 def read_spec(md_path: Path, module_name: Optional[str] = None) -> ExtractedSpec:
     """Read and parse a .veri.md file.
 
@@ -130,7 +198,10 @@ def read_spec(md_path: Path, module_name: Optional[str] = None) -> ExtractedSpec
         raise FileNotFoundError(f"Spec not found: {md_path}")
 
     raw = md_path.read_text()
-    blocks = extract_blocks(raw)
+    raw_blocks = extract_blocks(raw)
+
+    # Resolve `import X` by inlining type declarations from X.veri.md
+    blocks = _resolve_imports(raw_blocks, md_path)
 
     if not blocks:
         raise ValueError(
@@ -156,21 +227,29 @@ def read_spec(md_path: Path, module_name: Optional[str] = None) -> ExtractedSpec
 
     program = merge_programs(blocks, module_name)
 
+    # Extract VERI_VERSION from raw text
+    veri_version = None
+    version_match = re.search(r'```veri\n.*?VERI_VERSION\s+(\S+)', raw, re.DOTALL)
+    if version_match:
+        veri_version = version_match.group(1).strip()
+
     return ExtractedSpec(
         path=md_path,
         raw_text=raw,
-        veri_blocks=blocks,
+        veri_blocks=raw_blocks,
+        resolved_blocks=blocks,
         program=program,
         module_name=module_name,
         todo_function_names=todo_names,
         todo_indices=todo_indices,
+        veri_version=veri_version,
     )
 
 
-def generate_fsti(spec: ExtractedSpec) -> str:
-    """Generate F* .fsti (interface) from the spec.
+def generate_interface(spec: ExtractedSpec) -> str:
+    """Generate F* .fst (interface) from the spec.
 
-    The .fsti contains type declarations and val signatures only —
+    The .fst contains type declarations and val signatures only —
     no let-bindings, no admit(), no stubs. This is what F* can
     check purely as an interface.
     """
@@ -182,7 +261,7 @@ def generate_fst_with_stubs(spec: ExtractedSpec) -> str:
     """Generate a .fst with admit() stubs for all TODO functions.
 
     .fst has: module header + open/type declarations + admit() stubs.
-    No val declarations — those are in the .fsti pair file.
+    No val declarations — those are in the .fst pair file.
 
     Deprecated: use generate_complete_fst() instead, which preserves
     val signatures and accepts real implementation code.
@@ -271,7 +350,7 @@ RULES:
      These are ephemeral — recreated each run.
   3. Never write Veri DSL directly. Veri DSL is for the user only.
   4. After writing the target-language code, run the verifier:
-     - For F*: fstar.exe --include /opt/fstar/lib/fstar/ulib <file>.fsti
+     - For F*: fstar.exe --include /opt/fstar/lib/fstar/ulib <file>.fst
      - For Dafny: dafny verify <file>.dfy
   5. If verification fails, fix the code and retry (up to 3 times).
   6. Once verified, the pipeline converts your code to Veri DSL for the user.

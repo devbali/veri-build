@@ -1,6 +1,6 @@
 """Lint — Hook 1: Interface-only verification.
 
-Reads a .veri.md, parses Veri DSL blocks, generates .fsti,
+Reads a .veri.md, parses Veri DSL blocks, generates .fst,
 and runs fstar.exe on the interface WITHOUT --admit_smt_queries.
 This checks that types, signatures, and pre/post-conditions
 are well-formed F* — without any implementations."""
@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
-from .spec import read_spec, generate_fsti, ExtractedSpec
+from .spec import read_spec, generate_interface, ExtractedSpec
 
 
 class LintError(Exception):
@@ -81,7 +81,7 @@ def lint_interface(
         SyntaxError: If Veri DSL parsing fails
     """
     spec = read_spec(md_path, module_name)
-    fsti_code = generate_fsti(spec)
+    fsti_code = generate_interface(spec)
 
     fstar = fstar_bin or find_fstar()
     if not fstar:
@@ -90,7 +90,7 @@ def lint_interface(
         )
 
     with tempfile.TemporaryDirectory(prefix="veri-lint-") as tmp:
-        fsti_path = Path(tmp) / f"{spec.module_name}.fsti"
+        fsti_path = Path(tmp) / f"{spec.module_name}.fst"
         fsti_path.write_text(fsti_code)
 
         cmd = [

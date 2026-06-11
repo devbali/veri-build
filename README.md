@@ -201,7 +201,26 @@ veri-build/
 │   ├── API.md
 │   └── VERIFICATION-SKILL.md
 └── scripts/
-    └── veri-build-runner
+    └── compile_parent_subagent_runner.py    ← parent agent loop (inside Docker)
+```
+
+## Versioning
+
+The Veri DSL language version is tracked in
+[`src/veri_build/dsl/src/VERSION`](src/veri_build/dsl/src/VERSION)
+(currently **0.0.1**). Specs may declare their version:
+
+```veri
+VERI_VERSION 0.0.1
+```
+
+The lint step checks that the spec's `VERI_VERSION` matches the DSL
+version. Every commit that changes the Veri DSL language should update
+`VERSION` and create a corresponding git tag:
+
+```bash
+git tag v$(cat src/veri_build/dsl/src/VERSION)
+git push --tags
 ```
 
 ## Reference docs
@@ -209,4 +228,5 @@ veri-build/
 - **Veri DSL syntax**: `src/veri_build/dsl/README.md`
 - **Full API reference**: `docs/API.md`
 - **Agent skill instructions**: `docs/VERIFICATION-SKILL.md`
+- **Backend development**: `docs/BACKENDS.md`
 - **Docker setup**: `Dockerfile` (build with: `docker build -t verification-builder:latest .`)

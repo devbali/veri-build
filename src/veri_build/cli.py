@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # ---- lint ----
-    lint_p = sub.add_parser("lint", help="Verify interface: Veri DSL → .fsti → fstar.exe")
+    lint_p = sub.add_parser("lint", help="Verify interface: Veri DSL → .fst → fstar.exe")
     lint_p.add_argument("spec", type=Path, help="Path to .veri.md file")
     lint_p.add_argument("--module-name", help="Module name (default: derived from filename)")
     lint_p.add_argument("--fstar-bin", help="Path to fstar.exe")
@@ -35,24 +35,24 @@ def build_parser() -> argparse.ArgumentParser:
     lint_p.add_argument("--fuel", type=int, default=2, help="SMT fuel (default: 2)")
     lint_p.add_argument("--auto-rlimit", action="store_true", help="Auto-tune rlimit if interface check fails")
 
-    # ---- verify ----
-    verify_p = sub.add_parser("verify", help="Full pipeline: lint → fill → verify → compile")
-    verify_p.add_argument("spec", type=Path, help="Path to .veri.md file")
-    verify_p.add_argument("--module-name", help="Module name (default: derived from filename)")
-    verify_p.add_argument("--fstar-bin", help="Path to fstar.exe")
-    verify_p.add_argument("--child", choices=["claude", "pi"], default="claude",
+    # ---- compile ----
+    compile_p = sub.add_parser("compile", help="Full pipeline: lint → fill → verify → compile")
+    compile_p.add_argument("spec", type=Path, help="Path to .veri.md file")
+    compile_p.add_argument("--module-name", help="Module name (default: derived from filename)")
+    compile_p.add_argument("--fstar-bin", help="Path to fstar.exe")
+    compile_p.add_argument("--child", choices=["claude", "pi"], default="claude",
                           help="LLM CLI for TODO filling (default: claude)")
-    verify_p.add_argument("--target", choices=["wasm", "so", "none"], default="none",
+    compile_p.add_argument("--target", choices=["wasm", "so", "none"], default="none",
                           help="Compilation target (default: none)")
-    verify_p.add_argument("--out-dir", type=Path, default=Path("build"),
+    compile_p.add_argument("--out-dir", type=Path, default=Path("build"),
                           help="Output directory for build artifacts (default: build/)")
-    verify_p.add_argument("--rlimit", type=int, default=5, help="Initial Z3 rlimit (default: 5)")
-    verify_p.add_argument("--fuel", type=int, default=2, help="SMT fuel (default: 2)")
-    verify_p.add_argument("--auto-rlimit", action="store_true",
+    compile_p.add_argument("--rlimit", type=int, default=5, help="Initial Z3 rlimit (default: 5)")
+    compile_p.add_argument("--fuel", type=int, default=2, help="SMT fuel (default: 2)")
+    compile_p.add_argument("--auto-rlimit", action="store_true",
                           help="Auto-tune rlimit if proof fails")
-    verify_p.add_argument("--retries", type=int, default=3,
+    compile_p.add_argument("--retries", type=int, default=3,
                           help="LLM retry attempts (default: 3)")
-    verify_p.add_argument("--timeout", type=int, default=30,
+    compile_p.add_argument("--timeout", type=int, default=30,
                           help="LLM subprocess timeout in seconds (default: 30)")
 
     return parser
@@ -95,7 +95,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_verify(args: argparse.Namespace) -> int:
+def cmd_compile(args: argparse.Namespace) -> int:
     """Full pipeline: lint → fill → verify → compile."""
     try:
         # ── Step 1: Lint interface (pure F* check, no admits) ──

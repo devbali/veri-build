@@ -175,8 +175,9 @@ inside a single Docker container invocation. One script does it all:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The `veri-build-runner` script (`scripts/veri-build-runner`) is installed
-in the Docker image at `/usr/local/bin/veri-build-runner`. It handles
+The `veri-build-runner` command (symlink to
+`scripts/compile_parent_subagent_runner.py`) is installed in the Docker
+image at `/usr/local/bin/veri-build-runner`. It handles
 all steps in one process.
 
 ## Sub-agent contract

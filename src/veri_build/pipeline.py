@@ -23,18 +23,22 @@ from pathlib import Path
 from typing import List, Optional, Literal
 
 
-# ── Supported target languages ──────────────────────────────────────────────
+# ── Supported target languages / backends ───────────────────────────────────
 
-Target = Literal['fstar', 'dafny', 'python-assert']
+# A target is a backend name (see veri_build/target/ for the registry).
+# Common values:
+#   'fstar-c'       — F* → C via KaRaMeL (Low* enforced)
+#   'fstar-ocaml'   — F* → OCaml via fstar --codegen OCaml
+#   'dafny-rust'    — Dafny → Rust
+#   'python-assert' — Python → _conditions.py + @contract decorators
 
-# F* → C (via Low* / KaRaMeL)
-# Dafny → Rust (via Dafny's built-in Rust backend)
-# Python → .py _conditions.py + @contract runtime decorators
+Target = str  # any registered backend name
 
 TARGET_TO_OUTPUT = {
-    'fstar': 'c',         # F* → KaRaMeL → C (Low* enforced)
-    'dafny': 'rust',      # Dafny → Rust
-    'python-assert': 'py', # Python — _conditions.py + @contract decorators
+    'fstar-c': 'c',
+    'fstar-ocaml': 'ml',
+    'dafny-rust': 'rust',
+    'python-assert': 'py',
 }
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -95,27 +99,62 @@ def _extract_target_from_veri(veri_text: str) -> Optional[str]:
     """Read the target declaration from Veri DSL spec.
 
     Target is declared as an uppercase keyword in the first Veri DSL block:
-      TARGET f-star-c     # F* → C via Low* / KaRaMeL (Low* enforced)
-      TARGET dafny-rust   # Dafny → Rust
-      TARGET python-assert # Python — runtime assertion checks
+      TARGET f-star-c       # F* → C via KaRaMeL (Low*)
+      TARGET f-star-ocaml   # F* → OCaml via fstar --codegen OCaml
+      TARGET dafny-rust     # Dafny → Rust
+      TARGET python-assert  # Python — runtime assertion checks
 
-    Returns 'fstar' (for f-star-c), 'dafny' (for dafny-rust), or 'python' (for python-assert), or None.
+    Returns the backend name (e.g., 'fstar-c', 'fstar-ocaml') or None.
     """
-    # Match TARGET followed by target name inside a ```veri block
+    from veri_build.target import get_by_target
     m = re.search(r'```veri\n.*?TARGET\s+(\S+)', veri_text, re.DOTALL | re.IGNORECASE)
     if m:
-        val = m.group(1).lower()
-        if val == 'f-star-c':
-            return 'fstar'
-        if val == 'dafny-rust':
-            return 'dafny'
-        if val == 'python-assert':
-            return 'python'
+        raw = m.group(1).lower().strip()
+        # Backward compat and common aliases (canonical forms are fstar-c etc.)
+        alias_map = {
+            'fstar-c': 'fstar-c', 'f-star-c': 'fstar-c',
+            'fstar-ocaml': 'fstar-ocaml', 'f-star-ocaml': 'fstar-ocaml',
+            'fstar-wasm': 'fstar-wasm', 'f-star-wasm': 'fstar-wasm',
+            'dafny-java': 'dafny-java', 'dafny-js': 'dafny-js',
+            'dafny-python': 'dafny-python',
+            'dafny-rust': 'dafny-rust', 'dafny': 'dafny-rust',
+            'python-assert': 'python-assert',
+            'c': 'fstar-c', 'ocaml': 'fstar-ocaml', 'wasm': 'fstar-wasm',
+            'java': 'dafny-java', 'js': 'dafny-js', 'python': 'python-assert', 'rust': 'dafny-rust',
+        }
+        resolved = alias_map.get(raw, raw)
+        try:
+            backend = get_by_target(resolved)
+            return backend.name
+        except KeyError:
+            return None
     return None
 
 
+def _extract_version_from_veri(veri_text: str) -> Optional[str]:
+    """Read VERI_VERSION declaration from Veri DSL spec.
+
+    The version is declared as:
+      VERI_VERSION 0.3.0
+
+    Must appear in the first Veri DSL block. Returns None if not declared.
+    """
+    m = re.search(r'```veri\n.*?VERI_VERSION\s+(\S+)', veri_text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _get_veri_dsl_version() -> str:
+    """Read the current Veri DSL version from the VERSION file."""
+    version_path = Path(__file__).resolve().parent / 'dsl' / 'src' / 'VERSION'
+    if version_path.exists():
+        return version_path.read_text().strip()
+    return 'unknown'
+
+
 def _extract_veri_blocks(md_text: str) -> List[str]:
-    return [b.strip() for b in Veri_BLOCK_PATTERN.findall(md_text) if b.strip()]
+    return [b.strip() for b in VERI_BLOCK_PATTERN.findall(md_text) if b.strip()]
 
 
 def _is_veri_block(block: str) -> bool:
@@ -174,7 +213,7 @@ def _generate_target_code(veri_path: Path, target: Target,
     """Generate target-language code from Veri DSL .veri.md.
 
     Returns (spec, interface_path, impl_path) where:
-      - fstar: interface_path = .fsti, impl_path = .fst
+      - fstar: interface_path = .fst, impl_path = .fst
       - dafny: interface_path = .dfy (module signature), impl_path = .dfy (full)
     """
     sys.path.insert(0, str(VERI_BUILD_ROOT / 'dsl' / 'src'))
@@ -183,7 +222,14 @@ def _generate_target_code(veri_path: Path, target: Target,
     spec = read_spec(veri_path, module_name=module_name)
     mn = spec.module_name
 
-    if target == 'fstar':
+    from veri_build.target import get as _get_backend
+    try:
+        _backend = _get_backend(target)
+    except KeyError:
+        raise ValueError(f"Unsupported target: {target}")
+    _dsl_lang = _backend.dsl_language()
+
+    if _dsl_lang == 'fstar':
         from backend.fstar.printer import FStarPrinter
         printer = FStarPrinter()
 
@@ -197,12 +243,12 @@ def _generate_target_code(veri_path: Path, target: Target,
                 continue
             filtered.add(decl)
 
-        fsti_text = printer.print(filtered)
+        fst_text = printer.print(filtered)
         fst_text = _generate_fstar_stubs(spec)
 
-        return spec, fsti_text, fst_text
+        return spec, fst_text, fst_text
 
-    elif target == 'dafny':
+    elif _dsl_lang == 'dafny':
         from backend.dafny.printer import DafnyPrinter
         printer = DafnyPrinter()
         # Interface: types + function/method signatures only
@@ -549,6 +595,7 @@ class LintResult:
     target_stderr: str = ''
     target_stdout: str = ''
     target: Target = 'fstar'
+    veri_version: str = ''
 
 
 @dataclass
@@ -563,7 +610,7 @@ class VerifyConvertResult:
     target: Target = 'fstar'
 
 
-def _run_fstar_interface(fsti_text: str, module_name: str,
+def _run_fstar_interface(fst_text: str, module_name: str,
                           fstar_bin: Optional[str] = None) -> tuple[int, str, str]:
     """Run fstar.exe on an interface file and return (returncode, stdout, stderr)."""
     fstar = fstar_bin or _find_tool('fstar.exe')
@@ -576,10 +623,10 @@ def _run_fstar_interface(fsti_text: str, module_name: str,
 
     with tempfile.TemporaryDirectory(prefix='verilint_') as tmpdir:
         tmp = Path(tmpdir)
-        fsti_path = tmp / f'{module_name}.fsti'
-        fsti_path.write_text(fsti_text)
+        fst_path = tmp / f'{module_name}.fst'
+        fst_path.write_text(fst_text)
 
-        cmd = [fstar, '--include', ulib, str(fsti_path)]
+        cmd = [fstar, '--include', ulib, str(fst_path)]
 
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -729,6 +776,57 @@ def _dafny_to_veri(dafny_text: str) -> str:
     return printer.print(prog)
 
 
+def _check_functions_implemented(block: str) -> List[tuple[str, str]]:
+    """Check every function in a Veri DSL block has a body, EXTERN, or #TODO.
+
+    Returns: list of (function_name, issue_description) for each
+      function that has REQUIRES/ENSURES but no body, no EXTERN, and no #TODO.
+    """
+    issues = []
+    lines = block.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = re.match(r'^\s*def\s+(\w+)\s*\(', line)
+        if not m:
+            i += 1
+            continue
+
+        fn_name = m.group(1)
+        has_contract = False
+        has_body = False
+        has_extern = False
+        has_todo = False
+
+        # Scan function body until we hit a new top-level construct
+        # (non-indented line that isn't a contract keyword, comment, or blank)
+        i += 1
+        while i < len(lines):
+            l = lines[i]
+            s = l.strip()
+            if not s:
+                i += 1
+                continue
+            if s.startswith(('REQUIRES', 'ENSURES', 'DECREASES')):
+                has_contract = True
+            elif s.startswith('#TODO'):
+                has_todo = True
+            elif s.startswith('EXTERN'):
+                has_extern = True
+            elif s.startswith(('return', 'if', 'match')):
+                has_body = True
+            elif not l.startswith((' ', '\t')) and not s.startswith(('REQUIRES', 'ENSURES', 'DECREASES', '#', '')):
+                # New top-level construct — function ended
+                break
+            elif not l.startswith((' ', '\t')) and s.startswith(('def ', 'class ', 'type ', 'import ', 'EXTERN ')):
+                break
+            i += 1
+
+        if has_contract and not has_body and not has_extern and not has_todo:
+            issues.append((fn_name, 'has REQUIRES/ENSURES but no body, EXTERN, or #TODO'))
+    return issues
+
+
 def lint(veri_path: str,
          fstar_bin: Optional[str] = None,
          dafny_bin: Optional[str] = None) -> LintResult:
@@ -769,13 +867,33 @@ def lint(veri_path: str,
             'Add to first Veri DSL block: TARGET f-star-c or TARGET dafny-rust'
         ])
 
-    result = LintResult(True, target=target)
+    # Read and check VERI_VERSION
+    spec_version = _extract_version_from_veri(text)
+    dsl_version = _get_veri_dsl_version()
+    if spec_version is not None and spec_version != dsl_version:
+        return LintResult(False, errors=[
+            f'VERI_VERSION mismatch: spec says {spec_version}, '
+            f'DSL is {dsl_version}. Update VERI_VERSION in your .veri.md '
+            f'or upgrade the Veri DSL toolchain.'
+        ])
+
+    result = LintResult(True, target=target, veri_version=spec_version or dsl_version)
 
     # Step 1: Validate all blocks are Veri DSL (no raw target language)
     for i, block in enumerate(blocks):
         if not _is_veri_block(block):
             result.errors.append(
                 f'Block {i+1} contains raw target code (not Veri DSL): {block[:80]}...')
+            result.passed = False
+
+    if not result.passed:
+        return result
+
+    # Step 1b: Every function must have a body, EXTERN, or #TODO
+    for i, block in enumerate(blocks):
+        fn_issues = _check_functions_implemented(block)
+        for fn_name, issue in fn_issues:
+            result.errors.append(f'Block {i+1}: function "{fn_name}" {issue}')
             result.passed = False
 
     if not result.passed:
@@ -790,14 +908,17 @@ def lint(veri_path: str,
         return result
 
     # Step 3: Run target verifier on interface only (no admits, no stubs)
-    if target == 'fstar':
+    if target and target.startswith('fstar'):
+        # Types are inlined by _resolve_imports() — no cross-module deps needed.
         retcode, stdout, stderr = _run_fstar_interface(
             interface_text, spec.module_name, fstar_bin)
         result.target_stdout = stdout
         result.target_stderr = stderr
 
         if retcode == -1:
-            result.warnings.append(f'{stderr} — skipping F* verification')
+            result.errors.append(f'{stderr} — F* not found. Install fstar.exe or add to PATH. '
+                                 'The Veri DSL backend targets F* v2026.05.31.')
+            result.passed = False
         elif retcode != 0:
             result.errors.append(f'F* interface verification failed')
             for line in (stderr + '\n' + stdout).split('\n'):
@@ -818,7 +939,8 @@ def lint(veri_path: str,
         result.target_stderr = stderr
 
         if retcode == -1:
-            result.warnings.append(f'{stderr} — skipping Dafny verification')
+            result.errors.append(f'{stderr} — Dafny not found. Install dafny or add to PATH.')
+            result.passed = False
         elif retcode != 0:
             result.errors.append(f'Dafny verification failed')
             for line in (stderr + '\n' + stdout).split('\n'):
@@ -920,6 +1042,17 @@ def compile_veri(
 
     module_name = config.module_name or path.stem
 
+    # ── Step 0: Run lint (verify API) first ──────────────────────────────
+    # compile_veri delegates to lint for spec validation. This ensures
+    # that specs with broken Veri DSL, missing TARGET, or unimplemented
+    # contracts are rejected early, before Docker is invoked.
+    lint_result = lint(str(path))
+    if not lint_result.passed:
+        return CompileResult(
+            False, module_name, path, config.target or 'fstar',
+            error=f'Lint failed: {"; ".join(lint_result.errors[:3])}',
+        )
+
     if config.use_docker:
         # ── Everything runs inside Docker in one shot ──
         home = Path.home()
@@ -930,6 +1063,11 @@ def compile_veri(
             str(path.parent.resolve()): {'bind': '/workspace', 'mode': 'ro'},
             str(veri_root.resolve()): {'bind': '/opt/veri-build', 'mode': 'ro'},
         }
+
+        # Mount a writable output directory (separate from /workspace which is ro)
+        output_dir = Path(config.output_dir) if config.output_dir else (path.parent / 'build')
+        output_dir.mkdir(parents=True, exist_ok=True)
+        volumes[str(output_dir.resolve())] = {'bind': '/output', 'mode': 'rw'}
 
         # Write result.json to a writable temp dir on the host
         import uuid
@@ -953,19 +1091,30 @@ def compile_veri(
                 volumes[str(agents_dir)] = {'bind': '/root/.openclaw/agents', 'mode': 'ro'}
 
         # Build docker run command
+        import os as _os
         cmd = ['docker', 'run', '--rm']
+        # Run as non-root so claude's --dangerously-skip-permissions works
+        # (root is rejected for security reasons)
+        cmd.extend(['--user', f'{_os.getuid()}:{_os.getgid()}'])
+        # Set a writable HOME for agent config
+        cmd.extend(['-e', 'HOME=/tmp/home'])
         for src, bind in volumes.items():
             cmd.extend(['-v', f'{src}:{bind["bind"]}:{bind["mode"]}'])
+        # Pass ANTHROPIC_* env vars through to Docker so the agent inside can auth
+        for key, val in sorted(_os.environ.items()):
+            if key.startswith('ANTHROPIC_'):
+                cmd.extend(['-e', f'{key}={val}'])
 
         spec_container_path = f'/workspace/{path.name}'
 
-        # Map python-assert → python for the Docker runner
+        # Map python-assert → python for the Docker runner (backward compat)
         docker_target = config.target
         if docker_target == 'python-assert':
-            docker_target = 'python'
+            docker_target = 'python-assert'
 
         runner_args = [
-            'veri-build-runner', spec_container_path,
+            'python3', '/opt/veri-build/scripts/compile_parent_subagent_runner.py',
+            spec_container_path,
             '--target', docker_target,
             '--output', '/results/result.json',
         ]
@@ -973,16 +1122,16 @@ def compile_veri(
             runner_args += ['--agent', config.agent, '--agent-timeout',
                            str(config.timeout_seconds)]
 
-        cmd.extend(['-w', '/workspace', 'verification-builder', ' '.join(runner_args)])
+        # The container's entrypoint is /bin/bash -lc, so the CMD must be a
+        # single string — Docker merges all CMD elements into one for -lc.
+        runner_cmd_str = ' '.join(runner_args)
+        cmd.extend(['-w', '/workspace', 'verification-builder', runner_cmd_str])
 
         try:
             proc = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=config.timeout_seconds + 60)
-            if proc.returncode != 0:
-                return CompileResult(False, module_name, path, config.target,
-                                     error=f'Docker run failed: {proc.stderr[:500]}')
 
-            # Read results JSON from the writable results dir
+            # Read results JSON from the writable results dir (runner writes it always)
             result_path = result_dir / 'result.json'
             if result_path.exists():
                 docker_results = json.loads(result_path.read_text())
@@ -999,7 +1148,16 @@ def compile_veri(
 
                 _shutil.rmtree(result_dir, ignore_errors=True)
             else:
-                docker_results = {}
+                # Docker ran but didn't write result.json — capture stderr as fallback
+                docker_stderr = proc.stderr[-500:] if proc.stderr else ''
+                docker_stdout = proc.stdout[-500:] if proc.stdout else ''
+                docker_results = {
+                    'error': f'Docker container finished but no result.json. '
+                             f'Stderr: {docker_stderr}'
+                             f'Stdout: {docker_stdout}'
+                             if (docker_stderr or docker_stdout) else
+                             'Docker container finished but no result.json and no output.',
+                }
 
             mn = docker_results.get('module_name', module_name)
 
@@ -1008,6 +1166,15 @@ def compile_veri(
             if config.target == 'python-assert' and not interface:
                 interface = docker_results.get('conditions_path',
                     f'Generated: {docker_results.get("conditions_path", "")}')
+
+            # Propagate Docker error (e.g., container crash with no result.json)
+            docker_error = docker_results.get('error', '')
+            if docker_error and not interface and not docker_results.get('verification_passed'):
+                return CompileResult(
+                    success=False, module_name=module_name, veri_path=path,
+                    target=config.target, error=docker_error,
+                    docker_results=docker_results,
+                )
 
             return CompileResult(
                 success=True,

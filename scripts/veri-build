@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""veri-build — Formal verification pipeline for FCL specs.
+"""veri-build — Formal verification pipeline for Veri DSL specs.
 
-Usage:
-  veri-build lint spec.veri.md                     # Check interface (no LLM)
-  veri-build verify spec.veri.md                   # Full pipeline
-  veri-build verify spec.veri.md --child pi        # Use pi-coding-agent
-  veri-build verify spec.veri.md --target wasm     # Lint + fill + compile
+Two APIs:
+  veri-build lint spec.veri.md                       # Validate Veri DSL + F*/Dafny verification
+  veri-build compile spec.veri.md                    # Full pipeline: lint → agent → verify → extract
+
+Options:
+  veri-build compile spec.veri.md --child pi         # Use pi-coding-agent
+  veri-build compile spec.veri.md --target wasm      # Compile to WASM
 
 Documentation: https://github.com/devbali/veri-build
 """

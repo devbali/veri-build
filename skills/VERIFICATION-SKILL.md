@@ -1,6 +1,6 @@
 ---
 name: veri-dsl-verification
-description: Write F*/Dafny/Python specs, verify with fstar.exe/dafny/runtime assertions, and convert to user-facing Veri DSL. Use when the task involves formal verification, writing .veri.f.md/.veri.dfy.md files, running target verifiers, contract specifications, or compiling verified code to C (via Low*/KaRaMeL), Rust (via Dafny), or Python (runtime @contract). Triggers on: "specification", "spec", "verify", "veri", "Veri DSL", "veri.md", "F*", "Dafny", "Python", "formally verified", "contract spec", "Low*", "target: string".
+description: Write F*/Dafny/Python specs, verify with fstar.exe/dafny/runtime assertions, and convert to user-facing Veri DSL. Use when the task involves formal verification, writing .veri.f.md/.veri.dfy.md files, running target verifiers, contract specifications, or compiling verified code to C (via Low*/KaRaMeL), Rust (via Dafny), or Python (runtime @contract). Triggers on: "verify", "Veri DSL", "veri.md", "F*", "Dafny", "Python", "formally verified", "contract spec", "Low*", "target: string".
 ---
 
 # Veri DSL Verification
@@ -22,7 +22,7 @@ All targets produce **pure functions and pure types** — no side effects,
 no mutable state, no external effects:
 
 ```veri
-TARGET f-star-c       # F* → C via Low* / KaRaMeL
+TARGET fstar-c       # F* → C via Low* / KaRaMeL
 TARGET dafny-rust     # Dafny → Rust
 TARGET python-assert  # Python runtime @contract enforcement
 ```
@@ -43,7 +43,7 @@ All Veri DSL specs must be pure — this constraint applies regardless of target
 
 ### F* / Low* specifics
 
-When target is `f-star-c`, the pipeline additionally enforces the Low* subset:
+When target is `fstar-c`, the pipeline additionally enforces the Low* subset:
 - Low* subset only (required for KaRaMeL C compilation)
 - No `ST` effect, no `HyperStack`/`Heap`/`ST` modules
 - No `All`, `ML`, `Dv`, `Exn` effects
@@ -104,7 +104,7 @@ result = compile_veri("spec.veri.md", CompilerConfig(
 Output per target:
 | Target | Output |
 |--------|--------|
-| `f-star-c` | Verified C via Low* → KaRaMeL |
+| `fstar-c` | Verified C via Low* → KaRaMeL |
 | `dafny-rust` | Verified Rust |
 | `python-assert` | `_conditions.py` + `@contract`-injected implementation |
 
@@ -114,38 +114,109 @@ Output per target:
 (Rust) or generates Python conditions. This is a long-running isolated task —
 don't block the main session.
 
-**Credentials**: Docker container mounts `~/.claude/.credentials.json` and
-`~/.openclaw/` automatically for agent access.
+**Output directory**: Compiled artifacts land in a `build/` directory next to the
+spec. The agent prompt tells the sub-agent the exact output paths for the
+specific backend.
 
-**Persistence rule**: When launching the compile sub-agent, DO NOT give up if
-the first attempt fails or produces partial results. The sub-agent will either:
-- Return a fully compiled output (C/Rust binary or Python conditions)
-- Report that the spec is impossible to satisfy (with the mathematical proof)
-- Keep iterating until one of these outcomes is reached
+**Credentials**: ANTHROPIC_* env vars are forwarded to Docker automatically.
+
+## Parent-subagent retry protocol
+
+The `compile_veri` parent and LLM child communicate through a signal loop
+with up to 3 rounds:
+
+### Signal: `CODE`
+The child provides `let` definitions. The parent:
+1. Strips markdown fences and type-fixes the code
+2. Injects the code into the generated interface
+3. Re-runs fstar.exe / dafny verify
+4. If verification passes → accepts the code and proceeds to extraction
+5. If verification fails → re-prompts with the exact error message
+
+### Signal: `IMPOSSIBLE`
+The child claims the spec cannot be satisfied. The parent:
+1. **Judges the reasoning**: checks if the impossibility claim is mathematically sound
+2. If the parent agrees (the spec truly is contradictory) → stops, reports IMPOSSIBLE to the user
+3. If the parent disagrees (the reasoning has a flaw) → re-prompts the child explaining *why* the claim is wrong:
+   - "Your proof assumes X, but the spec allows Y"
+   - "The constraint you cite is precluded by REQUIRES line N"
+   - "You've misread the type of parameter Z — it's a list, not an integer"
+4. The parent NEVER silently accepts IMPOSSIBLE — it always validates the reasoning
+
+### Signal: `RETRY`
+The child needs something changed (more context, different framing). The parent:
+1. Re-prompts with additional context
+2. On the 3rd round, RETRY is treated as failure
+
+### Round 2+ feedback
+The parent counts implemented functions and tells the child what's still missing:
+```
+Previous round: 3 of 5 functions implemented. 2 still missing.
+  is_sorted — not yet implemented
+  insert — not yet implemented
+```
 
 If the sub-agent reports a blocker (e.g., missing tool, unsatisfiable constraint),
 the main session must either fix the issue and retry, or accept the impossibility
-finding. Never stop at "the agent step didn't produce output" — debug why and fix it.
+finding after the parent has validated the reasoning. Never stop at "the agent
+step didn't produce output" — debug why and fix it.
+
+## HARD RULE: Lint before delivering
+
+**Never present a `.veri.md` file to the user** — whether written, generated, or
+converted — unless it passes `lint`. The lint check must be the last step before
+showing the file:
+
+```bash
+PYTHONPATH=src:src/veri_build/dsl/src python3 -m veri_build.pipeline lint path/to/your.veri.md
+```
+
+Expected output:
+```
+✅ path/to/your.veri.md: lint passed (<target>)
+```
+
+If lint reports any error, **do not show the file to the user**. Fix every
+parse error first, then re-lint, and only deliver when it passes. A `.veri.md`
+that doesn't lint is broken — it cannot be compiled, verified, or used in any
+pipeline downstream step.
 
 ## User-facing Veri DSL format rules
 
-First Veri DSL block starts with the target declaration:
+After lint passes, deliver the `.veri.md`. A `.veri.md` file is a **markdown document**,
+not a bare DSL file. Write your
+specification in natural language prose, and place Veri DSL inside ` ```veri `
+fenced code blocks. The first Veri DSL block must declare the target:
+
+````markdown
+# Sorted List Specification
+
+Target: F* → C via Low*/KaRaMeL
 
 ```veri
-TARGET f-star-c
+TARGET fstar-c
+```
 
+## Element type
+
+Each element has a numeric serial and a string data field.
+
+```veri
 class Element:
     serial: nat
     data: string
 ```
+````
 
-Then types, predicates, and function specs in any order.
+After the target declaration, add types, predicates, and function specs in any
+order — each inside its own ` ```veri ` code block, with natural language
+documentation surrounding it.
 
 ## File conventions
 
 | File | Writer | Format | Purpose |
 |------|--------|--------|---------|
-| `spec.veri.md` | Pipeline | Veri DSL | User-facing — starts with `TARGET f-star-c`, `TARGET dafny-rust`, or `TARGET python-assert` |
+| `spec.veri.md` | Pipeline | Veri DSL | User-facing — starts with `TARGET fstar-c`, `TARGET dafny-rust`, or `TARGET python-assert` |
 | `spec.veri.f.md` | **You** (LLM, temp) | F* | Working file for F* target |
 | `spec.veri.dfy.md` | **You** (LLM, temp) | Dafny | Working file for Dafny target |
 

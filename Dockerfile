@@ -30,6 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── F* + KaRaMeL ────────────────────────────────────────────────────
+# PINNED: v2026.05.31 — the Veri DSL backend (printer.py) targets this
+# exact version's syntax: inline Pure ret pre (fun result -> post),
+# FStar.Seq.seq for arrays, b2t wrapping for bool→prop conversion.
+# If you upgrade F*, update backend/fstar/printer.py to match.
 RUN curl -fsSL -o /tmp/fstar.tar.gz \
     "https://github.com/FStarLang/FStar/releases/download/v2026.05.31/fstar-v2026.05.31-Linux-x86_64.tar.gz" \
     && mkdir -p /opt/fstar \
@@ -42,6 +46,8 @@ RUN curl -fsSL -o /tmp/fstar.tar.gz \
 RUN fstar.exe --version
 
 # ── Dafny ──────────────────────────────────────────────────────
+# PINNED: v4.11.0 — the Veri DSL backend (dafny/printer.py) targets this
+# version's syntax and type system. Update both if upgrading.
 RUN curl -fsSL -o /tmp/dafny.zip \
     "https://github.com/dafny-lang/dafny/releases/download/v4.11.0/dafny-4.11.0-x64-ubuntu-22.04.zip" \
     && unzip -q /tmp/dafny.zip -d /opt/dafny \
@@ -49,7 +55,7 @@ RUN curl -fsSL -o /tmp/dafny.zip \
     && ln -s /opt/dafny/dafny/dafny /usr/local/bin/dafny \
     && rm /tmp/dafny.zip
 
-# Verify Dafny works
+# Verify Dafny works and validate backend compatibility
 RUN dafny --version
 
 # ── Emscripten ──────────────────────────────────────────────────────
@@ -88,7 +94,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Install veri-build code ────────────────────────────────────────────
 COPY . /opt/veri-build/
 ENV PYTHONPATH=/opt/veri-build/src:/opt/veri-build/src/veri_build/dsl/src
-RUN ln -s /opt/veri-build/scripts/veri-build-runner /usr/local/bin/veri-build-runner
+RUN ln -s /opt/veri-build/scripts/compile_parent_subagent_runner.py /usr/local/bin/veri-build-runner
 
 # Emscripten SDK activation
 ENV EMSDK=/opt/emsdk
