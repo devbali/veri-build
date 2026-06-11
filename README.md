@@ -23,7 +23,7 @@ code blocks:
 Target: F* → C via Low*/KaRaMeL
 
 ```veri
-TARGET f-star-c
+TARGET fstar-c
 ```
 
 ## Element type
@@ -85,7 +85,7 @@ python3 -m veri_build.pipeline lint sorted_list.veri.md
 
 This checks:
 1. All ` ```veri ` blocks parse as valid Veri DSL
-2. The linter generates the target language interface (F* `.fsti` / Dafny `.dfy`)
+2. The linter generates the target language interface (F* `.fst` / Dafny `.dfy`)
    and runs the verifier to confirm the interface is consistent
 3. Rejects raw F* or Dafny code inside ` ```veri ` blocks — only Veri DSL is allowed
 
@@ -110,7 +110,7 @@ The pipeline:
 
 | Target | Output | Example |
 |--------|--------|---------|
-| `f-star-c` | Verified C via Low* → KaRaMeL | `sorted_list.c` + `sorted_list.h` |
+| `fstar-c` | Verified C via Low* → KaRaMeL | `sorted_list.c` + `sorted_list.h` |
 | `dafny-rust` | Verified Rust | `sorted_list.rs` |
 | `python-assert` | Runtime `@contract` enforcement | `_conditions.py` + injected decorators |
 
@@ -157,7 +157,7 @@ implementations (fstar, dafny, python).
 | Quantifiers | `FORALL x IN set: body` | F* `forall` / Dafny `forall` / runtime comprehension |
 | Pattern match | `match x: case []: ...` | F* `match` / Dafny `match` / Python 3.10 `match` |
 | List ops | `[hd, *tl]`, `len(x)` | `Cons`/`Nil`, `List.Tot.length` / Dafny `seq` / Python list |
-| Target marker | `TARGET f-star-c` | Pipeline routing |
+| Target marker | `TARGET fstar-c` | Pipeline routing |
 
 ## Pure contract discipline (all targets)
 
@@ -170,7 +170,7 @@ them must evaluate without side effects.
 
 | Target | Toolchain | Use Case |
 |--------|-----------|----------|
-| `f-star-c` | F* → Low* → KaRaMeL → C | Embedded, WASM, verified C libraries |
+| `fstar-c` | F* → Low* → KaRaMeL → C | Embedded, WASM, verified C libraries |
 | `dafny-rust` | Dafny → Rust | Verified Rust crates |
 | `python-assert` | Python `@contract` | Runtime enforcement in Python apps |
 
