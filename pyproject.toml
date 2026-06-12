@@ -16,5 +16,19 @@ authors = [
 [project.scripts]
 veri-build = "veri_build.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+# Two source roots have to land on the import path:
+#   - veri_build       lives in src/
+#   - backend + the loose veri_* modules live in the `dsl` submodule's own src/
+# veri_build code imports those as top-level names (`from veri_ast import ...`,
+# `from backend.dafny.printer import ...`), so map both roots explicitly. This
+# keeps a plain `pip install -e .` working with no extra flags.
+package-dir = {"" = "src/veri_build/dsl/src", "veri_build" = "src/veri_build"}
+packages = [
+    "veri_build",
+    "backend",
+    "backend.dafny",
+    "backend.fstar",
+    "backend.python",
+]
+py-modules = ["veri_ast", "veri_parser", "veri_printer", "fsti_to_veri"]
