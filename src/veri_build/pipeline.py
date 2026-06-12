@@ -106,7 +106,6 @@ def _extract_target_from_veri(veri_text: str) -> Optional[str]:
 
     Returns the backend name (e.g., 'fstar-c', 'fstar-ocaml') or None.
     """
-    from veri_build.target import get_by_target
     m = re.search(r'```veri\n.*?TARGET\s+(\S+)', veri_text, re.DOTALL | re.IGNORECASE)
     if m:
         raw = m.group(1).lower().strip()
@@ -122,12 +121,7 @@ def _extract_target_from_veri(veri_text: str) -> Optional[str]:
             'c': 'fstar-c', 'ocaml': 'fstar-ocaml', 'wasm': 'fstar-wasm',
             'java': 'dafny-java', 'js': 'dafny-js', 'python': 'python-assert', 'rust': 'dafny-rust',
         }
-        resolved = alias_map.get(raw, raw)
-        try:
-            backend = get_by_target(resolved)
-            return backend.name
-        except KeyError:
-            return None
+        return alias_map.get(raw)
     return None
 
 
