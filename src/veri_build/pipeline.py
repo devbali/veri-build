@@ -923,7 +923,7 @@ def lint(veri_path: str,
                 result.errors.append(lowstar_error)
                 result.passed = False
 
-    elif target == 'dafny':
+    elif target.startswith('dafny'):
         retcode, stdout, stderr = _run_dafny_interface(
             interface_text, spec.module_name, dafny_bin)
         result.target_stdout = stdout
