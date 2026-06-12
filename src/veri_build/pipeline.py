@@ -106,7 +106,6 @@ def _extract_target_from_veri(veri_text: str) -> Optional[str]:
 
     Returns the backend name (e.g., 'fstar-c', 'fstar-ocaml') or None.
     """
-    from veri_build.target import get_by_target
     m = re.search(r'```veri\n.*?TARGET\s+(\S+)', veri_text, re.DOTALL | re.IGNORECASE)
     if m:
         raw = m.group(1).lower().strip()
@@ -122,12 +121,7 @@ def _extract_target_from_veri(veri_text: str) -> Optional[str]:
             'c': 'fstar-c', 'ocaml': 'fstar-ocaml', 'wasm': 'fstar-wasm',
             'java': 'dafny-java', 'js': 'dafny-js', 'python': 'python-assert', 'rust': 'dafny-rust',
         }
-        resolved = alias_map.get(raw, raw)
-        try:
-            backend = get_by_target(resolved)
-            return backend.name
-        except KeyError:
-            return None
+        return alias_map.get(raw)
     return None
 
 
@@ -222,12 +216,9 @@ def _generate_target_code(veri_path: Path, target: Target,
     spec = read_spec(veri_path, module_name=module_name)
     mn = spec.module_name
 
-    from veri_build.target import get as _get_backend
-    try:
-        _backend = _get_backend(target)
-    except KeyError:
+    _dsl_lang = target.split('-')[0]
+    if _dsl_lang not in ('fstar', 'dafny', 'python'):
         raise ValueError(f"Unsupported target: {target}")
-    _dsl_lang = _backend.dsl_language()
 
     if _dsl_lang == 'fstar':
         from backend.fstar.printer import FStarPrinter
@@ -932,7 +923,7 @@ def lint(veri_path: str,
                 result.errors.append(lowstar_error)
                 result.passed = False
 
-    elif target == 'dafny':
+    elif target.startswith('dafny'):
         retcode, stdout, stderr = _run_dafny_interface(
             interface_text, spec.module_name, dafny_bin)
         result.target_stdout = stdout
