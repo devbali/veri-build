@@ -216,12 +216,9 @@ def _generate_target_code(veri_path: Path, target: Target,
     spec = read_spec(veri_path, module_name=module_name)
     mn = spec.module_name
 
-    from veri_build.target import get as _get_backend
-    try:
-        _backend = _get_backend(target)
-    except KeyError:
+    _dsl_lang = target.split('-')[0]
+    if _dsl_lang not in ('fstar', 'dafny', 'python'):
         raise ValueError(f"Unsupported target: {target}")
-    _dsl_lang = _backend.dsl_language()
 
     if _dsl_lang == 'fstar':
         from backend.fstar.printer import FStarPrinter
