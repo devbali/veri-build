@@ -9,7 +9,7 @@ Components:
   verify  — lint + fill + verify + candidate + compile to target
 """
 
-__version__ = "0.1.0"
+__version__ = "0.0.2"
 
 # ── Make Veri-DSL submodule importable ────────────────────────────────
 # The Veri-DSL git submodule lives at src/veri_build/dsl/

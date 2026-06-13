@@ -168,7 +168,7 @@ converted — unless it passes `lint`. The lint check must be the last step befo
 showing the file:
 
 ```bash
-PYTHONPATH=src:src/veri_build/dsl/src python3 -m veri_build.pipeline lint path/to/your.veri.md
+veri-build lint path/to/your.veri.md
 ```
 
 Expected output:

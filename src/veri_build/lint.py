@@ -5,6 +5,7 @@ and runs fstar.exe on the interface WITHOUT --admit_smt_queries.
 This checks that types, signatures, and pre/post-conditions
 are well-formed F* — without any implementations."""
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,20 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .spec import read_spec, generate_interface, ExtractedSpec
+
+
+def _get_veri_dsl_version() -> str:
+    """Read the current Veri DSL version from the VERSION file."""
+    version_path = Path(__file__).resolve().parent / 'dsl' / 'src' / 'VERSION'
+    if version_path.exists():
+        return version_path.read_text().strip()
+    return 'unknown'
+
+
+def _major_minor(version: str) -> str:
+    """Extract 'major.minor' from a semver string (e.g. '0.0.1' → '0.0')."""
+    parts = version.split('.')
+    return f'{parts[0]}.{parts[1]}' if len(parts) >= 2 else version
 
 
 class LintError(Exception):
@@ -77,10 +92,26 @@ def lint_interface(
         Parsed ExtractedSpec (if interface is sound)
 
     Raises:
-        LintError: If F* interface verification fails
+        LintError: If F* interface verification fails or version mismatch
         SyntaxError: If Veri DSL parsing fails
     """
     spec = read_spec(md_path, module_name)
+
+    # ── Version check (required, major.minor only) ──
+    if not spec.veri_version:
+        raise LintError(
+            "No VERI_VERSION declared. Add to the first Veri DSL block: "
+            f"VERI_VERSION {_get_veri_dsl_version()}"
+        )
+    dsl_version = _get_veri_dsl_version()
+    if _major_minor(spec.veri_version) != _major_minor(dsl_version):
+        raise LintError(
+            f"VERI_VERSION mismatch: spec says {spec.veri_version}, "
+            f"DSL is {dsl_version}. Upgrade Veri DSL toolchain for "
+            f"major.minor {_major_minor(spec.veri_version)} support, or "
+            f"update VERI_VERSION in your .veri.md to {dsl_version}."
+        )
+
     fsti_code = generate_interface(spec)
 
     fstar = fstar_bin or find_fstar()

@@ -24,6 +24,7 @@ Target: F* → C via Low*/KaRaMeL
 
 ```veri
 TARGET fstar-c
+VERI_VERSION 0.0.2
 ```
 
 ## Element type
@@ -79,8 +80,7 @@ Things to notice:
 ### 2. Lint the spec
 
 ```bash
-cd veri-build
-python3 -m veri_build.pipeline lint sorted_list.veri.md
+veri-build lint sorted_list.veri.md
 ```
 
 This checks:
@@ -95,7 +95,7 @@ The compile step runs a child LLM agent inside a Docker sandbox to fill `#TODO`
 blocks, then verifies the result and compiles to the target output:
 
 ```bash
-python3 -m veri_build.pipeline compile sorted_list.veri.md --agent claude
+veri-build compile sorted_list.veri.md --agent claude
 ```
 
 The pipeline:
@@ -157,7 +157,8 @@ implementations (fstar, dafny, python).
 | Quantifiers | `FORALL x IN set: body` | F* `forall` / Dafny `forall` / runtime comprehension |
 | Pattern match | `match x: case []: ...` | F* `match` / Dafny `match` / Python 3.10 `match` |
 | List ops | `[hd, *tl]`, `len(x)` | `Cons`/`Nil`, `List.Tot.length` / Dafny `seq` / Python list |
-| Target marker | `TARGET fstar-c` | Pipeline routing |
+| Target marker | `TARGET fstar-c
+VERI_VERSION 0.0.2` | Pipeline routing |
 
 ## Pure contract discipline (all targets)
 
@@ -206,16 +207,23 @@ veri-build/
 
 ## Versioning
 
+Veri Build version: **0.0.2**
+
 The Veri DSL language version is tracked in
 [`src/veri_build/dsl/src/VERSION`](src/veri_build/dsl/src/VERSION)
-(currently **0.0.1**). Specs may declare their version:
+(currently **0.0.2**). Every spec must declare its version in the first Veri DSL block:
 
 ```veri
-VERI_VERSION 0.0.1
+VERI_VERSION 0.0.2
 ```
 
-The lint step checks that the spec's `VERI_VERSION` matches the DSL
-version. Every commit that changes the Veri DSL language should update
+The pipeline checks version compatibility using **major.minor** only:
+- `0.0.1` and `0.0.2` are compatible (same `0.0.x` — backwards compatible)
+- `0.1.0` is **not** compatible with `0.0.x` (different minor)
+ - A `VERI_VERSION` declaration is **required** — lint will error if missing
+
+
+Every commit that changes the Veri DSL language should update
 `VERSION` and create a corresponding git tag:
 
 ```bash

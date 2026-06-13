@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Literal
 
+from .target import format_targets
 
 # ── Supported target languages / backends ───────────────────────────────────
 
@@ -145,6 +146,12 @@ def _get_veri_dsl_version() -> str:
     if version_path.exists():
         return version_path.read_text().strip()
     return 'unknown'
+
+
+def _major_minor(version: str) -> str:
+    """Extract 'major.minor' from a semver string (e.g. '0.0.1' → '0.0')."""
+    parts = version.split('.')
+    return f'{parts[0]}.{parts[1]}' if len(parts) >= 2 else version
 
 
 def _extract_veri_blocks(md_text: str) -> List[str]:
@@ -855,20 +862,25 @@ def lint(veri_path: str,
     if target is None:
         return LintResult(False, errors=[
             'No target language declared. '
-            'Add to first Veri DSL block: TARGET f-star-c or TARGET dafny-rust'
+            'Add to first Veri DSL block: ' + format_targets()
         ])
 
-    # Read and check VERI_VERSION
+    # Read and check VERI_VERSION (required, major.minor only)
     spec_version = _extract_version_from_veri(text)
-    dsl_version = _get_veri_dsl_version()
-    if spec_version is not None and spec_version != dsl_version:
+    if not spec_version:
         return LintResult(False, errors=[
-            f'VERI_VERSION mismatch: spec says {spec_version}, '
-            f'DSL is {dsl_version}. Update VERI_VERSION in your .veri.md '
-            f'or upgrade the Veri DSL toolchain.'
+            "No VERI_VERSION declared. Add to the first Veri DSL block: "
+            f"VERI_VERSION {_get_veri_dsl_version()}"
         ])
-
-    result = LintResult(True, target=target, veri_version=spec_version or dsl_version)
+    dsl_version = _get_veri_dsl_version()
+    if _major_minor(spec_version) != _major_minor(dsl_version):
+        return LintResult(False, errors=[
+            f"VERI_VERSION mismatch: spec says {spec_version}, "
+            f"DSL is {dsl_version}. Upgrade Veri DSL toolchain for "
+            f"major.minor {_major_minor(spec_version)} support, or "
+            f"update VERI_VERSION in your .veri.md to {dsl_version}."
+        ])
+    result = LintResult(True, target=target, veri_version=spec_version)
 
     # Step 1: Validate all blocks are Veri DSL (no raw target language)
     for i, block in enumerate(blocks):
@@ -879,6 +891,7 @@ def lint(veri_path: str,
 
     if not result.passed:
         return result
+
 
     # Step 1b: Every function must have a body, EXTERN, or #TODO
     for i, block in enumerate(blocks):
@@ -938,6 +951,7 @@ def lint(veri_path: str,
                 if 'Error' in line or 'error' in line:
                     result.errors.append(f'  Dafny: {line.strip()}')
             result.passed = False
+
 
     return result
 
@@ -1025,7 +1039,7 @@ def compile_veri(
         if detected is None:
             return CompileResult(
                 False, '', path, 'fstar',
-                error='No target language declared. Add: TARGET f-star-c or TARGET dafny-rust')
+                error='No target language declared. ' + format_targets())
         config.target = detected
 
     output_dir = Path(config.output_dir) if config.output_dir else path.parent

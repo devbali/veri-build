@@ -8,6 +8,7 @@ Each element has a unique serial number and some data:
 
 ```veri
 TARGET f-star-c
+VERI_VERSION 0.0.2
 
 class Element:
     serial: nat
