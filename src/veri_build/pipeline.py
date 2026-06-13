@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Literal
 
-from .target import format_targets
 
 # ── Supported target languages / backends ───────────────────────────────────
 
@@ -34,6 +33,24 @@ from .target import format_targets
 #   'python-assert' — Python → _conditions.py + @contract decorators
 
 Target = str  # any registered backend name
+
+CANONICAL_TARGETS = {
+    'fstar-c', 'fstar-ocaml', 'fstar-wasm',
+    'dafny-java', 'dafny-js', 'dafny-python', 'dafny-rust',
+}
+
+
+def _format_targets() -> str:
+    """Return a human-readable list of target names for error messages."""
+    names = sorted(CANONICAL_TARGETS)
+    if len(names) == 0:
+        return ''
+    if len(names) == 1:
+        return f'TARGET {names[0]}'
+    *all_but_last, last = names
+    prefix = ", TARGET ".join(all_but_last)
+    return f"TARGET {prefix}, or TARGET {last}"
+
 
 TARGET_TO_OUTPUT = {
     'fstar-c': 'c',
@@ -862,7 +879,7 @@ def lint(veri_path: str,
     if target is None:
         return LintResult(False, errors=[
             'No target language declared. '
-            'Add to first Veri DSL block: ' + format_targets()
+            'Add to first Veri DSL block: ' + _format_targets()
         ])
 
     # Read and check VERI_VERSION (required, major.minor only)
@@ -1039,7 +1056,7 @@ def compile_veri(
         if detected is None:
             return CompileResult(
                 False, '', path, 'fstar',
-                error='No target language declared. ' + format_targets())
+                error='No target language declared. ' + _format_targets())
         config.target = detected
 
     output_dir = Path(config.output_dir) if config.output_dir else path.parent
